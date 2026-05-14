@@ -1,0 +1,6 @@
+{
+  "name": "Remix: Driver Hub Enterprise",
+  "description": "A comprehensive enterprise dashboard for managing drivers, vehicle fuel balances, and odometer readings in Kuwait.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}
