@@ -4,6 +4,73 @@
  */
 
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, getDoc, setDoc, getDocs, collection, getDocFromServer } from 'firebase/firestore';
+import firebaseConfig from '../firebase-applet-config.json';
+
+// --- FIREBASE INITIALIZATION AND SECURE ERROR HANDLING ---
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: null,
+      email: null,
+      emailVerified: null,
+      isAnonymous: null,
+      tenantId: null
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration.");
+    }
+  }
+}
+testConnection();
+
+let globalShowToast: ((msg: string) => void) | null = null;
+export function showToast(msg: string) {
+  if (globalShowToast) {
+    globalShowToast(msg);
+  } else {
+    console.log("Toast:", msg);
+  }
+}
+
 import { 
   User, 
   Car, 
@@ -618,7 +685,10 @@ export default function App() {
     try {
       const stateToSync = currentStateOverride || {
         companies,
-        drivers,
+        drivers: drivers.map(d => {
+          const { password, ...rest } = d;
+          return rest;
+        }),
         adminAuth,
         hourlyRate,
         logoUrl,
@@ -657,7 +727,12 @@ export default function App() {
 
   // Persistence Effects
   useEffect(() => {
-    localStorage.setItem('fleet_hub_drivers', JSON.stringify(drivers));
+    const sanitizedDrivers = drivers.map(d => {
+      const copy = { ...d };
+      delete copy.password;
+      return copy;
+    });
+    localStorage.setItem('fleet_hub_drivers', JSON.stringify(sanitizedDrivers));
   }, [drivers]);
 
   useEffect(() => {
@@ -705,7 +780,52 @@ export default function App() {
           if (stateRes.ok) {
             const serverState = await stateRes.json();
             if (serverState.companies) setCompanies(serverState.companies);
-            if (serverState.drivers) setDrivers(serverState.drivers);
+            
+            let loadedDrivers = serverState.drivers || [];
+            try {
+              const credsSnap = await getDocs(collection(db, "driverCredentials"));
+              const credsMap: Record<string, any> = {};
+              credsSnap.forEach(snap => {
+                credsMap[snap.id] = snap.data();
+              });
+
+              loadedDrivers = loadedDrivers.map((d: any) => {
+                const cred = credsMap[d.id];
+                if (cred) {
+                  return {
+                    ...d,
+                    fileNumber: cred.fileNumber || d.fileNumber,
+                    password: cred.password || d.password,
+                    email: cred.email || d.email,
+                    name: cred.name || d.name,
+                    role: cred.role || d.role
+                  };
+                }
+                return d;
+              });
+
+              // Backfill seed drivers to Firestore if credentials don't exist in DB
+              for (const d of loadedDrivers) {
+                if (d.password && !credsMap[d.id]) {
+                  try {
+                    await setDoc(doc(db, "driverCredentials", d.id), {
+                      driverId: d.id,
+                      fileNumber: d.fileNumber || '',
+                      password: d.password,
+                      email: d.email || '',
+                      name: d.name || '',
+                      role: d.role || 'driver'
+                    });
+                  } catch (secErr) {
+                    console.error("Backfill failed for", d.id, secErr);
+                  }
+                }
+              }
+            } catch (fsErr) {
+              console.error("Failed to load driver credentials from Firestore", fsErr);
+            }
+            setDrivers(loadedDrivers);
+
             if (serverState.adminAuth) setAdminAuth(serverState.adminAuth);
             if (typeof serverState.hourlyRate === 'number') setHourlyRate(serverState.hourlyRate);
             if (typeof serverState.logoUrl === 'string') setLogoUrl(serverState.logoUrl);
@@ -814,6 +934,7 @@ export default function App() {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
+  globalShowToast = showToast;
 
   const handleUpdateFuel = (amount: number, newOdo: number, liters: number) => {
     setDrivers(prev => prev.map(d => {
@@ -1022,19 +1143,35 @@ export default function App() {
     );
   };
 
-  const handleNewDriver = (updates: Partial<DriverStat>) => {
+  const handleNewDriver = async (updates: Partial<DriverStat>) => {
     const nextIdVal = drivers.length > 0 ? Math.max(...drivers.map(d => isNaN(parseInt(d.id)) ? 0 : parseInt(d.id))) + 1 : 1;
     const newId = nextIdVal.toString();
     const name = updates.name || "Unnamed Driver";
     const fileNumber = updates.fileNumber || `F-${1000 + nextIdVal}`;
     const password = updates.password || '123';
+    const email = updates.email || `${name.toLowerCase()}@logistics.kw`;
+    const role = updates.role || 'driver';
+
+    // Store credentials strictly in Firebase Firestore
+    try {
+      await setDoc(doc(db, "driverCredentials", newId), {
+        driverId: newId,
+        fileNumber,
+        password,
+        email,
+        name,
+        role
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `driverCredentials/${newId}`);
+    }
     
     const newDriver: DriverStat = {
       id: newId,
       name,
-      email: updates.email || `${name.toLowerCase()}@logistics.kw`,
+      email,
       vehicle: updates.vehicle || "Standard Fleet Truck",
-      role: updates.role || 'driver',
+      role,
       odometer: updates.odometer !== undefined ? updates.odometer : 0,
       fuelBalance: updates.fuelBalance !== undefined ? updates.fuelBalance : 50.0,
       status: updates.status || 'active',
@@ -1060,7 +1197,27 @@ export default function App() {
     showToast(`New Driver Created: ${name}`);
   };
 
-  const handleEditDriver = (id: string, updates: Partial<DriverStat>) => {
+  const handleEditDriver = async (id: string, updates: Partial<DriverStat>) => {
+    // If any credential field is modified, mirror it strictly to Firebase
+    if (updates.name !== undefined || updates.email !== undefined || updates.fileNumber !== undefined || updates.password !== undefined || updates.role !== undefined) {
+      try {
+        const docRef = doc(db, "driverCredentials", id);
+        const existingDoc = await getDoc(docRef);
+        const exData = existingDoc.exists() ? existingDoc.data() : {};
+
+        await setDoc(docRef, {
+          driverId: id,
+          fileNumber: updates.fileNumber !== undefined ? updates.fileNumber : (exData.fileNumber || ''),
+          password: updates.password !== undefined ? updates.password : (exData.password || ''),
+          email: updates.email !== undefined ? updates.email : (exData.email || ''),
+          name: updates.name !== undefined ? updates.name : (exData.name || ''),
+          role: updates.role !== undefined ? updates.role : (exData.role || 'driver')
+        });
+      } catch (secErr) {
+        handleFirestoreError(secErr, OperationType.WRITE, `driverCredentials/${id}`);
+      }
+    }
+
     setDrivers(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
     showToast("Driver profile updated");
   };
@@ -4012,7 +4169,8 @@ function VehicleDetails({
   maintenance,
   onLogService,
   driver,
-  userRole = 'driver'
+  userRole = 'driver',
+  showToast
 }: { 
   onBack: () => void, 
   odometer: number, 
@@ -4024,7 +4182,8 @@ function VehicleDetails({
   maintenance: MaintenanceInfo,
   onLogService?: (service: Omit<ServiceRecord, 'id'>, customInterval?: number, isAdditional?: boolean) => void,
   driver?: DriverStat,
-  userRole?: string
+  userRole?: string,
+  showToast?: (msg: string) => void
 }) {
   const [inputValue, setInputValue] = useState<string>(odometer.toString());
 
@@ -7200,9 +7359,131 @@ function MasterDashboard({
   setLogoUrl: (v: string) => void,
   showToast: (m: string) => void
 }) {
-  const [activeMasterTab, setActiveMasterTab] = useState<'overview' | 'drivers' | 'vehicles' | 'companies' | 'no-code-editor' | 'sub-admins' | 'recycle' | 'archive' | 'settings'>('overview');
+  const [activeMasterTab, setActiveMasterTab] = useState<'overview' | 'drivers' | 'manual-attendance' | 'vehicles' | 'companies' | 'no-code-editor' | 'sub-admins' | 'recycle' | 'archive' | 'settings'>('overview');
   const [editingObj, setEditingObj] = useState<{ type: 'driver' | 'vehicle' | 'company' | 'tenant', id?: string } | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // Admin Manual Attendance State
+  const [selectedDriverForManual, setSelectedDriverForManual] = useState<string>('');
+  const [manualDate, setManualDate] = useState<string>('');
+  const [manualCheckIn, setManualCheckIn] = useState<string>('');
+  const [manualCheckOut, setManualCheckOut] = useState<string>('');
+  const [manualAttendanceEntries, setManualAttendanceEntries] = useState<any[]>([]);
+  const [loadingManualEntries, setLoadingManualEntries] = useState<boolean>(false);
+
+  const fetchManualEntries = async () => {
+    setLoadingManualEntries(true);
+    try {
+      const snap = await getDocs(collection(db, "manualAttendance"));
+      const list: any[] = [];
+      snap.forEach(docSnap => {
+        list.push(docSnap.data());
+      });
+      list.sort((a, b) => new Date(b.insertedAt || 0).getTime() - new Date(a.insertedAt || 0).getTime());
+      setManualAttendanceEntries(list);
+    } catch (e) {
+      console.error("Failed to fetch manual attendance entries:", e);
+    } finally {
+      setLoadingManualEntries(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeMasterTab === 'manual-attendance') {
+      fetchManualEntries();
+    }
+  }, [activeMasterTab]);
+
+  const handleCreateManualAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDriverForManual) {
+      showToast("❌ Please select a driver.");
+      return;
+    }
+    if (!manualDate) {
+      showToast("❌ Please select a custom Date.");
+      return;
+    }
+    if (!manualCheckIn || !manualCheckOut) {
+      showToast("❌ Please enter both Check-In and Check-Out times.");
+      return;
+    }
+
+    const driverObj = drivers.find(d => d.id === selectedDriverForManual);
+    if (!driverObj) {
+      showToast("❌ Selected driver not found.");
+      return;
+    }
+
+    const startDateTime = new Date(`${manualDate}T${manualCheckIn}:00`);
+    let endDateTime = new Date(`${manualDate}T${manualCheckOut}:00`);
+    if (endDateTime < startDateTime) {
+      endDateTime.setDate(endDateTime.getDate() + 1);
+    }
+
+    const diffMs = endDateTime.getTime() - startDateTime.getTime();
+    const totalHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
+    const regularHours = Number(Math.min(totalHours, 8).toFixed(2));
+    const otHours = Number(Math.max(0, totalHours - 8).toFixed(2));
+
+    const entryId = 'm-' + Math.random().toString(36).substring(7);
+    const path = `manualAttendance/${entryId}`;
+
+    const newManualLog = {
+      id: entryId,
+      driverId: selectedDriverForManual,
+      driverName: driverObj.name,
+      date: manualDate,
+      inTime: manualCheckIn,
+      outTime: manualCheckOut,
+      totalHours,
+      regularHours,
+      otHours,
+      insertedAt: new Date().toISOString()
+    };
+
+    try {
+      await setDoc(doc(db, "manualAttendance", entryId), newManualLog);
+
+      const formattedDateForDutyLog = new Date(manualDate).toLocaleDateString();
+      const formattedInTimeForDutyLog = startDateTime.toLocaleTimeString();
+      const formattedOutTimeForDutyLog = endDateTime.toLocaleTimeString();
+
+      const newDutyLog: DutyLog = {
+        id: entryId,
+        date: formattedDateForDutyLog,
+        inTime: formattedInTimeForDutyLog,
+        outTime: formattedOutTimeForDutyLog,
+        totalHours,
+        regularHours,
+        otHours,
+        inLocation: { lat: 29.3759, lng: 47.9774 },
+        outLocation: { lat: 29.3759, lng: 47.9774 }
+      };
+
+      const updatedDrivers = drivers.map(d => {
+        if (d.id === selectedDriverForManual) {
+          return {
+            ...d,
+            dutyLogs: [newDutyLog, ...(d.dutyLogs || [])]
+          };
+        }
+        return d;
+      });
+
+      setDrivers(updatedDrivers);
+
+      setSelectedDriverForManual('');
+      setManualDate('');
+      setManualCheckIn('');
+      setManualCheckOut('');
+
+      showToast(`✅ Manual attendance entry logged for ${driverObj.name}!`);
+      fetchManualEntries();
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  };
 
   // Partial edit states
   const [tempDriver, setTempDriver] = useState<Partial<DriverStat>>({});
@@ -7367,7 +7648,7 @@ function MasterDashboard({
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden md:flex gap-2 mr-4">
-            {(['overview', 'drivers', 'vehicles', 'companies', 'no-code-editor', 'sub-admins', 'recycle', 'archive', 'settings'] as const).map((tab) => (
+            {(['overview', 'drivers', 'manual-attendance', 'vehicles', 'companies', 'no-code-editor', 'sub-admins', 'recycle', 'archive', 'settings'] as const).map((tab) => (
               <button 
                 key={tab}
                 onClick={() => setActiveMasterTab(tab)}
@@ -7376,6 +7657,7 @@ function MasterDashboard({
                 {tab === 'recycle' ? 'Client Trash' : 
                  tab === 'archive' ? 'Master Archive' : 
                  tab === 'no-code-editor' ? 'No-Code Console' :
+                 tab === 'manual-attendance' ? 'Manual Attendance' :
                  tab === 'sub-admins' ? 'Sub-Admins' : tab}
               </button>
             ))}
@@ -7443,7 +7725,7 @@ function MasterDashboard({
 
       {/* Mobile Nav */}
       <div className="md:hidden flex overflow-x-auto p-4 gap-2 border-b border-white/5 bg-[#0d0d0d] no-scrollbar">
-        {(['overview', 'drivers', 'vehicles', 'companies', 'no-code-editor', 'sub-admins', 'recycle', 'archive', 'settings'] as const).map((tab) => (
+        {(['overview', 'drivers', 'manual-attendance', 'vehicles', 'companies', 'no-code-editor', 'sub-admins', 'recycle', 'archive', 'settings'] as const).map((tab) => (
           <button 
             key={tab}
             onClick={() => setActiveMasterTab(tab)}
@@ -7452,6 +7734,7 @@ function MasterDashboard({
             {tab === 'recycle' ? 'Trash' : 
              tab === 'archive' ? 'Archive' : 
              tab === 'no-code-editor' ? 'No-Code' :
+             tab === 'manual-attendance' ? 'Manual Punch' :
              tab === 'sub-admins' ? 'SubAdmins' : tab}
           </button>
         ))}
@@ -7561,6 +7844,196 @@ function MasterDashboard({
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {activeMasterTab === 'manual-attendance' && (
+          <div className="space-y-8 animate-fadeIn">
+            <div className="flex items-center justify-between px-1">
+              <div className="space-y-1">
+                <h2 className="text-xl font-black uppercase tracking-tight">Manual Attendance Entry</h2>
+                <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-[0.2em]">Admin Back-Date Portal</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Form Column */}
+              <div className="lg:col-span-5 bg-white/5 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6">
+                <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+                  <div className="w-8 h-8 rounded-lg bg-danger/20 text-danger flex items-center justify-center">
+                    <Clock size={16} />
+                  </div>
+                  <h3 className="text-sm font-black uppercase tracking-wider">Log Back-Dated Shift</h3>
+                </div>
+
+                <form onSubmit={handleCreateManualAttendance} className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pl-1">Target Driver</label>
+                    <select
+                      className="w-full bg-[#111] p-4 rounded-xl outline-none border border-white/5 focus:border-danger font-bold text-white transition-colors"
+                      value={selectedDriverForManual}
+                      onChange={e => setSelectedDriverForManual(e.target.value)}
+                      required
+                    >
+                      <option value="" className="bg-[#111]">-- SELECT DRIVER --</option>
+                      {drivers.filter(d => d.role === 'driver' && !d.companyDeleted).map(d => (
+                        <option key={d.id} value={d.id} className="bg-[#111]">
+                          {d.name} ({d.vehicle || 'No Vehicle Assigned'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pl-1">Shift Date</label>
+                    <input
+                      type="date"
+                      className="w-full bg-white/5 p-4 rounded-xl outline-none border border-white/5 focus:border-danger font-mono text-sm font-bold text-white transition-colors"
+                      value={manualDate}
+                      onChange={e => setManualDate(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pl-1">Check-in Time</label>
+                      <input
+                        type="time"
+                        className="w-full bg-white/5 p-4 rounded-xl outline-none border border-white/5 focus:border-danger font-mono text-sm font-bold text-white transition-colors"
+                        value={manualCheckIn}
+                        onChange={e => setManualCheckIn(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 pl-1">Check-out Time</label>
+                      <input
+                        type="time"
+                        className="w-full bg-white/5 p-4 rounded-xl outline-none border border-white/5 focus:border-danger font-mono text-sm font-bold text-white transition-colors"
+                        value={manualCheckOut}
+                        onChange={e => setManualCheckOut(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Calculations Review Section */}
+                  {manualDate && manualCheckIn && manualCheckOut && (
+                    <div className="bg-white/5 border border-white/5 rounded-2xl p-4 space-y-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Calculated Metrics</p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                          <p className="text-[8px] font-bold text-neutral-400 uppercase">Regular Hrs</p>
+                          <p className="text-lg font-black text-white">
+                            {(() => {
+                              const start = new Date(`${manualDate}T${manualCheckIn}:00`);
+                              let end = new Date(`${manualDate}T${manualCheckOut}:00`);
+                              if (end < start) end.setDate(end.getDate() + 1);
+                              const total = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                              return Math.min(total, 8).toFixed(2);
+                            })()}
+                          </p>
+                        </div>
+                        <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                          <p className="text-[8px] font-bold text-neutral-400 uppercase">O.T. Hrs</p>
+                          <p className="text-lg font-black text-rose-500">
+                            {(() => {
+                              const start = new Date(`${manualDate}T${manualCheckIn}:00`);
+                              let end = new Date(`${manualDate}T${manualCheckOut}:00`);
+                              if (end < start) end.setDate(end.getDate() + 1);
+                              const total = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                              return Math.max(0, total - 8).toFixed(2);
+                            })()}
+                          </p>
+                        </div>
+                        <div className="bg-[#1c1c1c] p-3 rounded-xl border border-white/10">
+                          <p className="text-[8px] font-bold text-neutral-400 uppercase">Total Hrs</p>
+                          <p className="text-lg font-black text-emerald-400">
+                            {(() => {
+                              const start = new Date(`${manualDate}T${manualCheckIn}:00`);
+                              let end = new Date(`${manualDate}T${manualCheckOut}:00`);
+                              if (end < start) end.setDate(end.getDate() + 1);
+                              return ((end.getTime() - start.getTime()) / (1000 * 60 * 60)).toFixed(2);
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full bg-danger text-white py-4 rounded-xl text-xs font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 mt-4 shadow-lg shadow-danger/20"
+                  >
+                    <Save size={16} /> Save directly to Firebase
+                  </button>
+                </form>
+              </div>
+
+              {/* Log History List */}
+              <div className="lg:col-span-7 bg-white/5 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6 flex flex-col">
+                <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-neutral-800 text-neutral-300 flex items-center justify-center">
+                      <Calendar size={16} />
+                    </div>
+                    <h3 className="text-sm font-black uppercase tracking-wider">Manual Attendance entries in Firestore</h3>
+                  </div>
+                  <button 
+                    onClick={fetchManualEntries} 
+                    className="p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors"
+                    title="Refresh Log list"
+                    disabled={loadingManualEntries}
+                  >
+                    <RefreshCw size={14} className={`text-neutral-400 ${loadingManualEntries ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {loadingManualEntries ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 space-y-3">
+                    <RefreshCw size={24} className="animate-spin text-danger" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Retrieving records from Cloud Database...</p>
+                  </div>
+                ) : manualAttendanceEntries.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center text-neutral-500 border-2 border-dashed border-white/5 rounded-2xl">
+                    <p className="text-xs font-mono font-bold uppercase tracking-widest text-neutral-600 mb-1">Database Empty</p>
+                    <p className="text-[10px] text-neutral-500 max-w-xs uppercase leading-relaxed font-bold tracking-tight">No back-dated manual entries found in Firestore. Complete the form to insert elements.</p>
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-x-auto space-y-3 max-h-[500px] no-scrollbar pr-1">
+                    {manualAttendanceEntries.map((log) => (
+                      <div key={log.id} className="bg-black/20 border border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-white/10 transition-colors">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-danger" />
+                            <h4 className="text-xs font-black uppercase text-white tracking-wide">{log.driverName}</h4>
+                          </div>
+                          <div className="flex gap-4 text-[10px] text-neutral-400 font-mono font-semibold">
+                            <span>📅 {log.date}</span>
+                            <span>⏰ {log.inTime} - {log.outTime}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="bg-white/5 border border-white/5 px-3 py-1.5 rounded-xl text-center">
+                            <p className="text-[8px] font-bold text-neutral-500 uppercase">Regular</p>
+                            <p className="text-xs font-black text-white">{log.regularHours}h</p>
+                          </div>
+                          <div className="bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-xl text-center">
+                            <p className="text-[8px] font-bold text-rose-400 uppercase">Overtime</p>
+                            <p className="text-xs font-black text-rose-500">{log.otHours}h</p>
+                          </div>
+                          <div className="bg-[#1a1a1a] border border-white/10 px-3 py-1.5 rounded-xl text-center">
+                            <p className="text-[8px] font-bold text-emerald-400 uppercase">Total</p>
+                            <p className="text-xs font-black text-emerald-400">{log.totalHours}h</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "User": {
+      "title": "User / Driver Profile",
+      "description": "User account schema including NFC authentication field",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique user/driver identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the driver"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the driver"
+        },
+        "role": {
+          "type": "string",
+          "description": "User role: driver or admin"
+        },
+        "nfc_tag_id": {
+          "type": "string",
+          "description": "Captured NFC Card unique hardware identifier (UID) for taps"
+        },
+        "fileNumber": {
+          "type": "string",
+          "description": "Company file ID used for legacy credentials lookup"
+        },
+        "password": {
+          "type": "string",
+          "description": "Secure password PIN used for hybrid standard login"
+        }
+      },
+      "required": ["uid", "name", "role"]
+    },
+    "AttendanceRecord": {
+      "title": "Attendance Punch Record",
+      "description": "Punch-in and punch-out timing logs mapped to driver status",
+      "type": "object",
+      "properties": {
+        "logId": {
+          "type": "string",
+          "description": "Unique attendance punch collection ID"
+        },
+        "uid": {
+          "type": "string",
+          "description": "Referencing driver unique user/driver ID"
+        },
+        "date": {
+          "type": "string",
+          "description": "Local ISO-8601 representation of date (YYYY-MM-DD)"
+        },
+        "checkIn": {
+          "type": "string",
+          "description": "Check-in time stamp string"
+        },
+        "checkOut": {
+          "type": "string",
+          "description": "Check-out time stamp string"
+        },
+        "punchMethod": {
+          "type": "string",
+          "description": "Method of attendance punch registered: 'NFC' or 'Manual'"
+        }
+      },
+      "required": ["logId", "uid", "date", "checkIn", "punchMethod"]
+    }
+  },
+  "firestore": {
+    "users/{uid}": {
+      "schema": "User",
+      "description": "Active users and credential store mapping nfc_tag_id"
+    },
+    "attendance/{logId}": {
+      "schema": "AttendanceRecord",
+      "description": "Hybrid attendance punches tracking NFC log check-ins and check-outs"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Legacy credentials
+    match /driverCredentials/{driverId} {
+      allow read, write: if true;
+    }
+
+    // Legacy attendance
+    match /manualAttendance/{entryId} {
+      allow read, write: if true;
+    }
+
+    // New Android schemas
+    match /users/{uid} {
+      allow read, write: if true;
+    }
+
+    match /attendance/{logId} {
+      allow read, write: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
