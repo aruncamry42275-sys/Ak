@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dark_background"
+    android:padding="20dp"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="top">
+
+        <!-- Top Header Status Bar -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/admin_title"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SECURE DRIVER CONTROL & NFC INITIALIZER"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Form Module Card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/card_background"
+            android:padding="20dp"
+            android:layout_marginBottom="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DRIVER NAME / FULL IDENTIFICATION"
+                android:textColor="@color/text_secondary"
+                android:textSize="10dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/et_driver_name"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@color/dark_background"
+                android:hint="e.g. Abdullah Al-Kandari"
+                android:textColorHint="#404040"
+                android:textColor="@color/white"
+                android:paddingHorizontal="16dp"
+                android:inputType="textPersonName"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DRIVER EMAIL ADDRESS"
+                android:textColor="@color/text_secondary"
+                android:textSize="10dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/et_driver_email"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@color/dark_background"
+                android:hint="e.g. abdullah@logistics.kw"
+                android:textColorHint="#404040"
+                android:textColor="@color/white"
+                android:paddingHorizontal="16dp"
+                android:inputType="textEmailAddress"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="COMPANY FILE ID / IDENTIFIER"
+                android:textColor="@color/text_secondary"
+                android:textSize="10dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/et_driver_fileid"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@color/dark_background"
+                android:hint="e.g. 10245"
+                android:textColorHint="#404040"
+                android:textColor="@color/white"
+                android:paddingHorizontal="16dp"
+                android:inputType="number"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DRIVER ACCOUNT SECURITY PASSCODE / PIN"
+                android:textColor="@color/text_secondary"
+                android:textSize="10dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/et_driver_password"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@color/dark_background"
+                android:hint="e.g. 8839"
+                android:textColorHint="#404040"
+                android:textColor="@color/white"
+                android:paddingHorizontal="16dp"
+                android:inputType="numberPassword"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp" />
+
+            <!-- NFC Enrollment Segment -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/dark_background"
+                android:padding="16dp"
+                android:layout_marginBottom="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NFC HARDWARE TOKEN REGISTRATION"
+                    android:textColor="@color/danger"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.12"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Toggle Enrollment Mode Button -->
+                <Button
+                    android:id="@+id/btn_nfc_mode"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:backgroundTint="@color/border_color"
+                    android:text="ACTIVATE NFC SCANNING RADAR"
+                    android:textColor="@color/white"
+                    android:textSize="11sp"
+                    android:fontFamily="sans-serif-black"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Dynamic Scanner Status Message -->
+                <TextView
+                    android:id="@+id/tv_radar_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="SCANNER RADAR INACTIVE"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- NFC ID Readout -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SCANNED NFC CARD SERIAL ID:"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="8sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginBottom="4dp" />
+
+                <EditText
+                    android:id="@+id/et_nfc_tag_id"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:background="@color/card_background"
+                    android:hint="No Tag Detected -- Please Tap NFC Card"
+                    android:textColorHint="#303030"
+                    android:textColor="@color/success"
+                    android:paddingHorizontal="12dp"
+                    android:editable="false"
+                    android:focusable="false"
+                    android:fontFamily="monospace"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+            <!-- Save driver action -->
+            <Button
+                android:id="@+id/btn_save_driver"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:backgroundTint="@color/success"
+                android:text="SAVE PROFILE TO FIRESTORE"
+                android:textColor="@color/white"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="0.05" />
+
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_logout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="@color/border_color"
+            android:text="DISCONNECT SESSION"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp"
+            android:layout_gravity="center" />
+
+    </LinearLayout>
+</ScrollView>
