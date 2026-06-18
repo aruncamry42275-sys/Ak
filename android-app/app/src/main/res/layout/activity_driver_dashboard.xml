@@ -154,6 +154,112 @@
 
         </LinearLayout>
 
+        <!-- Today's Vehicle Report & Metrics Card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/card_background"
+            android:padding="20dp"
+            android:layout_marginBottom="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TODAY'S VEHICLE REPORT &amp; METRICS"
+                android:textColor="@color/danger"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.15"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Start Odometer Metrics -->
+            <TextView
+                android:id="@+id/tv_start_odometer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Start: -- km"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="8dp" />
+
+            <!-- End Odometer Metrics -->
+            <TextView
+                android:id="@+id/tv_end_odometer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="End: -- km"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Duration Metrics -->
+            <TextView
+                android:id="@+id/tv_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Duration: --"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+        </LinearLayout>
+
+        <!-- Fuel Budget Consumption Card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/card_background"
+            android:padding="20dp"
+            android:layout_marginBottom="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="FUEL BUDGET CONSUMPTION REPORT"
+                android:textColor="@color/danger"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.15"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Allocated Budget -->
+            <TextView
+                android:id="@+id/tv_allocated_budget"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Allocated Budget: -- KD"
+                android:textColor="@color/white"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Remaining Budget -->
+            <TextView
+                android:id="@+id/tv_remaining_budget"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Remaining Budget: -- KD"
+                android:textColor="@color/success"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-bold"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Additional Spent -->
+            <TextView
+                android:id="@+id/tv_additional_spent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Additional Spent: -- KD"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+        </LinearLayout>
+
         <!-- Toyota Fortuner Maintenance log panel -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -235,6 +341,18 @@
                 android:paddingHorizontal="16dp"
                 android:inputType="numberDecimal"
                 android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Additional Amount Checkbox -->
+            <CheckBox
+                android:id="@+id/cb_additional_amount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MARK AS ADDITIONAL AMOUNT (EXCLUDED FROM BASE BUDGET)"
+                android:textColor="@color/white"
+                android:buttonTint="@color/danger"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
                 android:layout_marginBottom="16dp" />
 
             <!-- Spare parts part codes -->

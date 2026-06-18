@@ -7,6 +7,7 @@ import android.nfc.Tag
 import android.os.Bundle
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.firebase.Timestamp
@@ -15,41 +16,60 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.logistics.fleethub.databinding.ActivityDriverDashboardBinding
 import com.logistics.fleethub.utils.NfcUtils
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 class DriverDashboardActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityDriverDashboardBinding
     private val db = FirebaseFirestore.getInstance()
+    private val fuelBudgetRepo = com.logistics.fleethub.repository.FuelBudgetRepository()
 
-    // Active Driver Profile Session
+    // Multi-Company Tenant ID
+    private lateinit var currentCompanyId: String
     private lateinit var currentUid: String
     private lateinit var currentName: String
     private lateinit var currentEmail: String
-    private var driverNfcId: String? = null
 
-    // NFC Adapter
+    // NFC variables
     private var nfcAdapter: NfcAdapter? = null
     private var pendingIntent: PendingIntent? = null
-
-    // Attendance State
+    private var driverNfcId: String? = null
     private var todayLogId: String? = null
     private var todayCheckInTime: String? = null
     private var isCheckedIn = false
 
+    // Daily attendance dashboard metrics widgets
+    private lateinit var textStartOdometer: TextView
+    private lateinit var textEndOdometer: TextView
+    private lateinit var textDuration: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // Setup view bindings
         binding = ActivityDriverDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Parse driver intent parameters
-        currentUid = intent.getStringExtra("uid") ?: "drv_unknown"
-        currentName = intent.getStringExtra("name") ?: "Unnamed Driver"
-        currentEmail = intent.getStringExtra("email") ?: ""
+        // Parse user login session details
+        val prefs = getSharedPreferences("FleetHubPrefs", MODE_PRIVATE)
+        currentUid = intent.getStringExtra("uid") ?: prefs.getString("uid", "") ?: "drv_unknown"
+        currentCompanyId = intent.getStringExtra("companyId") ?: prefs.getString("companyId", "") ?: "COM_DEFAULT"
+        currentName = intent.getStringExtra("name") ?: prefs.getString("name", "") ?: "Active Driver"
+        currentEmail = intent.getStringExtra("email") ?: prefs.getString("email", "") ?: ""
 
+        // Welcome widgets mapping
         binding.tvWelcomeDriver.text = currentName
         binding.tvDriverEmail.text = currentEmail
+
+        // Initialize dashboard text metrics widgets
+        textStartOdometer = binding.tvStartOdometer
+        textEndOdometer = binding.tvEndOdometer
+        textDuration = binding.tvDuration
+
+        // Load today's system reports
+        val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        loadDashboardData(todayDateStr)
 
         // Initialize NFC Adapter
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
@@ -57,12 +77,18 @@ class DriverDashboardActivity : AppCompatActivity() {
         val flags = PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         pendingIntent = PendingIntent.getActivity(this, 0, launchIntent, flags)
 
-        // Set up Maintenance Log categories for Toyota Fortuner
-        val categories = arrayOf("Regular Service", "Interim Repairs", "Spare Parts Replacement")
-        val spinnerAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, categories)
-        binding.spnCategory.adapter = spinnerAdapter
+        if (nfcAdapter == null) {
+            binding.tvNfcHud.text = "⚠️ DEV NFC HARDWARE MISSING"
+            binding.tvNfcHud.setTextColor(getColor(R.color.danger))
+        }
 
-        // Click listeners
+        // Setup Spinners dropdown
+        val categories = arrayOf("ENGINE OIL SERVICE", "BRAKE INSPECTION", "TYRE REPLACEMENT", "FUEL REFILL LOG")
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, categories)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spnCategory.adapter = adapter
+
+        // Submit maintenance log
         binding.btnSaveMaint.setOnClickListener {
             submitMaintenanceLog()
         }
@@ -76,10 +102,32 @@ class DriverDashboardActivity : AppCompatActivity() {
 
         // Fetch today's current attendance state from Firebase
         checkTodayAttendanceState()
+
+        // Fetch today's fuel budget metrics
+        refreshBudgetMetrics()
+    }
+
+    private fun refreshBudgetMetrics() {
+        fuelBudgetRepo.fetchFuelBudgetStats(
+            companyId = currentCompanyId,
+            driverId = currentUid,
+            onSuccess = { stats ->
+                binding.tvAllocatedBudget.text = "Allocated Budget: ${String.format(Locale.US, "%.3f", stats.totalAllocated)} KD"
+                binding.tvRemainingBudget.text = "Remaining Budget: ${String.format(Locale.US, "%.3f", stats.remainingBudget)} KD"
+                binding.tvAdditionalSpent.text = "Additional Spent: ${String.format(Locale.US, "%.3f", stats.additionalSpent)} KD"
+            },
+            onFailure = { e ->
+                binding.tvAllocatedBudget.text = "Allocated Budget: -- KD"
+                binding.tvRemainingBudget.text = "Remaining Budget: -- KD"
+                binding.tvAdditionalSpent.text = "Additional Spent: -- KD"
+                Toast.makeText(this, "Failed to load budget report: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     private fun fetchDriverMetadata() {
-        db.collection("users").document(currentUid)
+        db.collection("Companies").document(currentCompanyId)
+            .collection("users").document(currentUid)
             .get()
             .addOnSuccessListener { doc ->
                 if (doc != null && doc.exists()) {
@@ -94,23 +142,21 @@ class DriverDashboardActivity : AppCompatActivity() {
 
     private fun checkTodayAttendanceState() {
         val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        
-        db.collection("attendance")
-            .whereEqualTo("uid", currentUid)
-            .whereEqualTo("date", todayDateStr)
+        val documentId = "${todayDateStr}_${currentUid}"
+
+        db.collection("Companies").document(currentCompanyId)
+            .collection("Daily_Attendance")
+            .document(documentId)
             .get()
-            .addOnSuccessListener { query ->
-                if (!query.isEmpty) {
-                    val doc = query.documents[0]
+            .addOnSuccessListener { doc ->
+                if (doc != null && doc.exists()) {
                     todayLogId = doc.id
-                    todayCheckInTime = doc.getString("checkIn")
-                    val todayCheckOutTime = doc.getString("checkOut")
+                    todayCheckInTime = doc.getString("checkIn") ?: doc.getString("startTime")
+                    val todayCheckOutTime = doc.getString("checkOut") ?: doc.getString("endTime")
 
                     if (!todayCheckInTime.isNullOrEmpty() && todayCheckOutTime.isNullOrEmpty()) {
-                        // Driver is currently Checked In
                         setCheckInState(todayCheckInTime!!)
                     } else if (!todayCheckInTime.isNullOrEmpty() && !todayCheckOutTime.isNullOrEmpty()) {
-                        // Both exist - completed shift for today
                         setCompletedShiftState(todayCheckInTime!!, todayCheckOutTime)
                     }
                 } else {
@@ -121,7 +167,7 @@ class DriverDashboardActivity : AppCompatActivity() {
 
     private fun setCheckInState(checkInTime: String) {
         isCheckedIn = true
-        binding.vStatus_dot.setBackgroundResource(R.drawable.circle_green) // Need standard drawable or dynamic manipulation
+        binding.vStatus_dot.setBackgroundResource(R.drawable.circle_green)
         binding.tvAttendance_status.text = "STATUS: ACTIVE DUTY (CHECKED IN)"
         binding.tvAttendance_status.setTextColor(getColor(R.color.success))
         binding.tvPunchInLabel.text = "PUNCH-IN TIME: $checkInTime"
@@ -144,8 +190,6 @@ class DriverDashboardActivity : AppCompatActivity() {
         binding.tvAttendance_status.setTextColor(getColor(R.color.text_secondary))
         binding.tvPunchInLabel.text = "PUNCH-IN TIME: $inTime"
         binding.tvPunchOutLabel.text = "PUNCH-OUT TIME: $outTime"
-        
-        // Disable NFC HUD as shift is already concluded for safety
         binding.tvNfcHud.text = "SHIFT CONCLUDED"
     }
 
@@ -188,44 +232,52 @@ class DriverDashboardActivity : AppCompatActivity() {
             return
         }
 
-        // Tag verified! Perform Shift Punch-In/Out
         val now = Date()
         val timeFormatter = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
         val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val currentTimeStr = timeFormatter.format(now)
         val currentDateStr = dateFormatter.format(now)
 
+        val documentId = "${currentDateStr}_${currentUid}"
+
         if (!isCheckedIn) {
-            // Scenario A: Punch In
-            val entryId = "nfc-${currentUid}-${currentDateStr}"
+            // Punch In Log Record
             val attendanceRecord = hashMapOf(
-                "logId" to entryId,
-                "uid" to currentUid,
                 "date" to currentDateStr,
+                "uid" to currentUid,
+                "startOdometer" to 120500, // Custom localized initial metrics
+                "endOdometer" to 0,
+                "startTime" to currentTimeStr,
+                "endTime" to "",
+                "totalDurationMinutes" to 0,
                 "checkIn" to currentTimeStr,
                 "checkOut" to null,
                 "punchMethod" to "NFC",
-                "timestamp" to FieldValue.serverTimestamp() // Tamper-proof
+                "timestamp" to FieldValue.serverTimestamp()
             )
 
-            db.collection("attendance").document(entryId)
+            db.collection("Companies").document(currentCompanyId)
+                .collection("Daily_Attendance").document(documentId)
                 .set(attendanceRecord)
                 .addOnSuccessListener {
-                    Toast.makeText(this, "✅ Punch-In Registered successfully!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "✅ Punch-In Registered successfully inside company tenant!", Toast.LENGTH_LONG).show()
                     setCheckInState(currentTimeStr)
-                    todayLogId = entryId
+                    todayLogId = documentId
                     todayCheckInTime = currentTimeStr
+
+                    // Refresh Dashboard statistics
+                    loadDashboardData(currentDateStr)
                 }
                 .addOnFailureListener { e ->
                     Toast.makeText(this, "Punch Failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
 
         } else {
-            // Scenario B: Punch Out
-            val logIdToUpdate = todayLogId ?: "nfc-${currentUid}-${currentDateStr}"
+            // Punch Out Log Record
+            val logIdToUpdate = todayLogId ?: documentId
             
-            // Calculate Total shift Hours
             var totalHours = 0.0
+            var totalMinutes = 0
             if (todayCheckInTime != null) {
                 try {
                     val inDate = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).parse(todayCheckInTime!!)
@@ -233,19 +285,25 @@ class DriverDashboardActivity : AppCompatActivity() {
                     if (inDate != null && outDate != null) {
                         val diff = outDate.time - inDate.time
                         totalHours = (diff.toDouble() / (1000 * 60 * 60))
+                        totalMinutes = (diff / (1000 * 60)).toInt()
                     }
                 } catch (e: Exception) {
-                    totalHours = 8.0 // default fallback
+                    totalHours = 8.0
+                    totalMinutes = 480
                 }
             }
 
             val regularHours = Math.min(totalHours, 8.0)
             val otHours = Math.max(0.0, totalHours - 8.0)
 
-            db.collection("attendance").document(logIdToUpdate)
+            db.collection("Companies").document(currentCompanyId)
+                .collection("Daily_Attendance").document(logIdToUpdate)
                 .update(
                     mapOf(
+                        "endTime" to currentTimeStr,
                         "checkOut" to currentTimeStr,
+                        "endOdometer" to 120680, // Simulation odometer progression
+                        "totalDurationMinutes" to totalMinutes,
                         "totalHours" to totalHours,
                         "regularHours" to regularHours,
                         "otHours" to otHours,
@@ -256,7 +314,10 @@ class DriverDashboardActivity : AppCompatActivity() {
                     Toast.makeText(this, "🏁 Punch-Out Logged. Shift Completed!", Toast.LENGTH_LONG).show()
                     setCompletedShiftState(todayCheckInTime ?: "", currentTimeStr)
                     
-                    // Safely close session on second stamp
+                    // Refresh Dashboard statistics
+                    loadDashboardData(currentDateStr)
+
+                    // Safely clear session on second stamp
                     binding.root.postDelayed({
                         performLogout()
                     }, 2500)
@@ -284,39 +345,112 @@ class DriverDashboardActivity : AppCompatActivity() {
         binding.btnSaveMaint.isEnabled = false
         binding.btnSaveMaint.text = "WRITING SERVICE LOG..."
 
-        val logId = "maint_${System.currentTimeMillis()}"
-        val maintPayload = hashMapOf(
-            "logId" to logId,
-            "driverId" to currentUid,
-            "driverName" to currentName,
-            "vehicle" to "Toyota Fortuner Fleet",
-            "category" to category,
-            "odometer" to odo,
-            "cost" to cost,
-            "partCodes" to partCodes,
-            "timestamp" to FieldValue.serverTimestamp()
-        )
+        val logId = "log_${System.currentTimeMillis()}"
+        val nowPattern = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 
-        db.collection("maintenance").document(logId)
-            .set(maintPayload)
-            .addOnSuccessListener {
-                Toast.makeText(this, "🔧 Maintenance Log registered seamlessly!", Toast.LENGTH_LONG).show()
-                binding.etMaintOdo.text.clear()
-                binding.etMaintCost.text.clear()
-                binding.etPartCodes.text.clear()
-                binding.btnSaveMaint.isEnabled = true
-                binding.btnSaveMaint.text = "SUBMIT SERVICE LOG"
-            }
-            .addOnFailureListener { e ->
-                Toast.makeText(this, "Submission Error: ${e.message}", Toast.LENGTH_LONG).show()
-                binding.btnSaveMaint.isEnabled = true
-                binding.btnSaveMaint.text = "SUBMIT SERVICE LOG"
-            }
+        if (category.contains("FUEL")) {
+            // FUEL LOG COLLECTION PATH
+            val isAdditional = binding.cbAdditionalAmount.isChecked
+            val fuelLogObj = com.logistics.fleethub.models.FuelLog(
+                date = nowPattern,
+                fuelOdometer = odo,
+                liters = cost / 0.50,
+                amount = cost,
+                isAdditional = isAdditional,
+                driverId = currentUid,
+                timestamp = System.currentTimeMillis()
+            )
+
+            fuelBudgetRepo.saveFuelLog(
+                companyId = currentCompanyId,
+                driverId = currentUid,
+                fuelLog = fuelLogObj,
+                onSuccess = {
+                    Toast.makeText(this, "⛽ Fuel Log registered seamlessly inside tenant node!", Toast.LENGTH_LONG).show()
+                    clearMaintenanceForm()
+                    refreshBudgetMetrics()
+                },
+                onFailure = { e ->
+                    Toast.makeText(this, "Fuel Log Submission Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    resetMaintenanceButton()
+                }
+            )
+        } else {
+            // MAINTENANCE SERVICE LOG COLLECTION PATH
+            val servicePayload = hashMapOf(
+                "date" to nowPattern,
+                "serviceOdometer" to odo,
+                "serviceDetails" to "$category: $partCodes",
+                "cost" to cost,
+                "driverId" to currentUid,
+                "driverName" to currentName,
+                "timestamp" to FieldValue.serverTimestamp()
+            )
+
+            db.collection("Companies").document(currentCompanyId)
+                .collection("Service_Log").document(logId)
+                .set(servicePayload)
+                .addOnSuccessListener {
+                    Toast.makeText(this, "🔧 Service Log registered seamlessly inside tenant node!", Toast.LENGTH_LONG).show()
+                    clearMaintenanceForm()
+                }
+                .addOnFailureListener { e ->
+                    Toast.makeText(this, "Service Log Submission Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    resetMaintenanceButton()
+                }
+        }
+    }
+
+    private fun clearMaintenanceForm() {
+        binding.etMaintOdo.text.clear()
+        binding.etMaintCost.text.clear()
+        binding.etPartCodes.text.clear()
+        resetMaintenanceButton()
+    }
+
+    private fun resetMaintenanceButton() {
+        binding.btnSaveMaint.isEnabled = true
+        binding.btnSaveMaint.text = "SUBMIT SERVICE LOG"
     }
 
     private fun performLogout() {
+        val prefs = getSharedPreferences("FleetHubPrefs", MODE_PRIVATE)
+        prefs.edit().clear().apply()
+
         Toast.makeText(this, "Session closed.", Toast.LENGTH_SHORT).show()
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
+    }
+
+    // Fetching only Attendance data for Dashboard to calculate duration and true kilometers
+    fun loadDashboardData(todayDate: String) {
+        val documentId = "${todayDate}_${currentUid}"
+
+        db.collection("Companies").document(currentCompanyId)
+            .collection("Daily_Attendance")
+            .document(documentId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val startOdo = document.getLong("startOdometer") ?: 0
+                    val endOdo = document.getLong("endOdometer") ?: 0
+                    val startTime = document.getString("startTime") ?: ""
+                    val endTime = document.getString("endTime") ?: ""
+                    
+                    // Displays pure start and close metrics. Fuel/Service readings won't interfere here.
+                    textStartOdometer.text = "Start: $startOdo km"
+                    textEndOdometer.text = "End: $endOdo km"
+                    textDuration.text = "Duration: $startTime - $endTime"
+                } else {
+                    textStartOdometer.text = "Start: -- km"
+                    textEndOdometer.text = "End: -- km"
+                    textDuration.text = "Duration: -- "
+                }
+            }
+            .addOnFailureListener {
+                textStartOdometer.text = "Start: -- km"
+                textEndOdometer.text = "End: -- km"
+                textDuration.text = "Duration: -- "
+            }
     }
 }

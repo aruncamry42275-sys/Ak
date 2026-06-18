@@ -67,16 +67,61 @@
         }
       },
       "required": ["logId", "uid", "date", "checkIn", "punchMethod"]
+    },
+    "DailyAttendance": {
+      "title": "Daily Attendance Metrics",
+      "description": "Odometer and duration tracking metrics used for dashboard calculations",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "startOdometer": { "type": "integer" },
+        "endOdometer": { "type": "integer" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "totalDurationMinutes": { "type": "integer" }
+      }
+    },
+    "FuelLog": {
+      "title": "Fuel Log Entry",
+      "description": "Log of liters consumed, amount spent, and odometer at fuel check",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "fuelOdometer": { "type": "integer" },
+        "liters": { "type": "number" },
+        "amount": { "type": "number" }
+      }
+    },
+    "ServiceLog": {
+      "title": "Service Log Entry",
+      "description": "Log of service vehicle details and odometer at maintenance check",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "serviceOdometer": { "type": "integer" },
+        "serviceDetails": { "type": "string" }
+      }
     }
   },
   "firestore": {
-    "users/{uid}": {
-      "schema": "User",
-      "description": "Active users and credential store mapping nfc_tag_id"
+    "Companies/{companyId}": {
+      "description": "Registered company tenants loaded by the multi-tenant engine"
     },
-    "attendance/{logId}": {
-      "schema": "AttendanceRecord",
-      "description": "Hybrid attendance punches tracking NFC log check-ins and check-outs"
+    "Companies/{companyId}/users/{uid}": {
+      "schema": "User",
+      "description": "Active isolated users belonging specifically to this company tenant"
+    },
+    "Companies/{companyId}/Daily_Attendance/{dateDoc}": {
+      "schema": "DailyAttendance",
+      "description": "Isolated true kilometer and duration metrics for daily dashboard reporting"
+    },
+    "Companies/{companyId}/Fuel_Log/{logId}": {
+      "schema": "FuelLog",
+      "description": "Isolated fuel log entries tracing liters consumed and purchase values"
+    },
+    "Companies/{companyId}/Service_Log/{logId}": {
+      "schema": "ServiceLog",
+      "description": "Isolated service and maintenance details logs"
     }
   }
 }

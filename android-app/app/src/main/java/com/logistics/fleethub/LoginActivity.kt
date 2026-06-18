@@ -16,18 +16,56 @@ class LoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Setup view bindings
+        // 1. Check local storage for persistent active session before displaying login layout
+        val prefs = getSharedPreferences("FleetHubPrefs", MODE_PRIVATE)
+        if (prefs.getBoolean("isLoggedIn", false)) {
+            val uid = prefs.getString("uid", "") ?: ""
+            val companyId = prefs.getString("companyId", "") ?: ""
+            val name = prefs.getString("name", "") ?: ""
+            val email = prefs.getString("email", "") ?: ""
+            val role = prefs.getString("role", "") ?: ""
+
+            if (uid.isNotEmpty() && companyId.isNotEmpty()) {
+                val nextIntent = if (role.lowercase() == "admin") {
+                    Intent(this, AdminActivity::class.java)
+                } else {
+                    Intent(this, DriverDashboardActivity::class.java)
+                }
+                nextIntent.putExtra("uid", uid)
+                nextIntent.putExtra("companyId", companyId)
+                nextIntent.putExtra("name", name)
+                nextIntent.putExtra("email", email)
+                nextIntent.putExtra("role", role)
+                
+                startActivity(nextIntent)
+                finish()
+                return
+            }
+        }
+
+        // Setup view bindings if no cached session exists
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         binding.btnLogin.setOnClickListener {
             performLogin()
         }
+
+        binding.btnToMaster.setOnClickListener {
+            startActivity(Intent(this, MasterControlActivity::class.java))
+            finish()
+        }
     }
 
     private fun performLogin() {
+        val companyId = binding.etLoginCompanyId.text.toString().trim().replace(" ", "_").uppercase()
         val identifier = binding.etUsername.text.toString().trim()
         val password = binding.etPassword.text.toString().trim()
+
+        if (companyId.isEmpty()) {
+            Toast.makeText(this, "Please enter your Company Tenant ID.", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         if (identifier.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Please fill in all security fields.", Toast.LENGTH_SHORT).show()
@@ -37,8 +75,10 @@ class LoginActivity : AppCompatActivity() {
         binding.progressLoader.visibility = View.VISIBLE
         binding.btnLogin.isEnabled = false
 
-        // Attempt login lookup in both `/users` document indices and `/driverCredentials`
-        db.collection("users")
+        // Attempt multi-tenant login lookup under /Companies/{Company_ID}/users
+        db.collection("Companies")
+            .document(companyId)
+            .collection("users")
             .whereEqualTo("fileNumber", identifier)
             .get()
             .addOnSuccessListener { querySnapshot ->
@@ -47,6 +87,7 @@ class LoginActivity : AppCompatActivity() {
                     val dbPass = doc.getString("password")
                     if (dbPass == password) {
                         navigateBasedOnRole(
+                            companyId = companyId,
                             uid = doc.id,
                             name = doc.getString("name") ?: "Unnamed Driver",
                             email = doc.getString("email") ?: "",
@@ -56,8 +97,10 @@ class LoginActivity : AppCompatActivity() {
                         onAuthFailed("Invalid Password/PIN.")
                     }
                 } else {
-                    // Try by Email as second primary route
-                    db.collection("users")
+                    // Try email lookup in the exact same multi-tenant node
+                    db.collection("Companies")
+                        .document(companyId)
+                        .collection("users")
                         .whereEqualTo("email", identifier)
                         .get()
                         .addOnSuccessListener { emailSnap ->
@@ -66,17 +109,17 @@ class LoginActivity : AppCompatActivity() {
                                 val dbPass = doc.getString("password")
                                 if (dbPass == password) {
                                     navigateBasedOnRole(
+                                        companyId = companyId,
                                         uid = doc.id,
                                         name = doc.getString("name") ?: "Unnamed Driver",
                                         email = doc.getString("email") ?: "",
                                         role = doc.getString("role") ?: "driver"
                                     )
                                 } else {
-                                    onAuthFailed("Invalid Password.")
+                                    onAuthFailed("Invalid Password/PIN.")
                                 }
                             } else {
-                                // Fallback checking legacy credentials table
-                                checkLegacyCredentials(identifier, password)
+                                onAuthFailed("Identifier not found inside Company node.")
                             }
                         }
                         .addOnFailureListener {
@@ -89,28 +132,19 @@ class LoginActivity : AppCompatActivity() {
             }
     }
 
-    private fun checkLegacyCredentials(identifier: String, password: String) {
-        db.collection("driverCredentials")
-            .document(identifier)
-            .get()
-            .addOnSuccessListener { doc ->
-                if (doc.exists() && doc.getString("password") == password) {
-                    navigateBasedOnRole(
-                        uid = identifier,
-                        name = doc.getString("name") ?: "Unnamed Driver",
-                        email = doc.getString("email") ?: "",
-                        role = doc.getString("role") ?: "driver"
-                    )
-                } else {
-                    onAuthFailed("Account credentials not recognized.")
-                }
-            }
-            .addOnFailureListener {
-                onAuthFailed(it.message ?: "Legacy credentials lookup failure.")
-            }
-    }
+    private fun navigateBasedOnRole(companyId: String, uid: String, name: String, email: String, role: String) {
+        // Save persistent credentials into SharedPreferences cache to survive App updates safely
+        val prefs = getSharedPreferences("FleetHubPrefs", MODE_PRIVATE)
+        prefs.edit().apply {
+            putBoolean("isLoggedIn", true)
+            putString("companyId", companyId)
+            putString("uid", uid)
+            putString("name", name)
+            putString("email", email)
+            putString("role", role)
+            apply()
+        }
 
-    private fun navigateBasedOnRole(uid: String, name: String, email: String, role: String) {
         binding.progressLoader.visibility = View.GONE
         binding.btnLogin.isEnabled = true
         
@@ -123,6 +157,7 @@ class LoginActivity : AppCompatActivity() {
         }
 
         nextIntent.putExtra("uid", uid)
+        nextIntent.putExtra("companyId", companyId)
         nextIntent.putExtra("name", name)
         nextIntent.putExtra("email", email)
         nextIntent.putExtra("role", role)

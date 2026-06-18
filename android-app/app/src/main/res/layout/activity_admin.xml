@@ -134,6 +134,30 @@
                 android:inputType="numberPassword"
                 android:fontFamily="monospace"
                 android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DRIVER BASE FUEL BUDGET (KWD)"
+                android:textColor="@color/text_secondary"
+                android:textSize="10dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/et_driver_fuel_budget"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@color/dark_background"
+                android:hint="e.g. 80.00"
+                android:textColorHint="#404040"
+                android:textColor="@color/white"
+                android:paddingHorizontal="16dp"
+                android:inputType="numberDecimal"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
                 android:layout_marginBottom="24dp" />
 
             <!-- NFC Enrollment Segment -->

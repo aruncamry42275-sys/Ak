@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_match"
-    android:layout_height="match_match"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/dark_background"
     android:padding="24dp"
-    android:gravity="center"
-    android:layout_width_match_parent="true"
-    android:layout_height_match_parent="true">
+    android:gravity="center">
 
     <ImageView
         android:id="@+id/logo_view"
@@ -32,12 +30,12 @@
         android:id="@+id/login_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/login_subtitle"
+        android:text="TENANT HARDWARE ACCESS GATEWAY"
         android:textColor="@color/text_secondary"
         android:textSize="10sp"
         android:fontFamily="monospace"
         android:letterSpacing="0.15"
-        android:layout_marginBottom="32dp" />
+        android:layout_marginBottom="24dp" />
 
     <!-- File Number / ID Form -->
     <LinearLayout
@@ -48,6 +46,31 @@
         android:padding="24dp"
         android:elevation="4dp"
         android:layout_marginBottom="16dp">
+
+        <!-- Company ID Input Field -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="COMPANY TENANT ID"
+            android:textColor="@color/danger"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/et_login_company_id"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@color/dark_background"
+            android:hint="e.g. COM_ALHAMRA"
+            android:textColorHint="#404040"
+            android:textColor="@color/white"
+            android:paddingHorizontal="16dp"
+            android:inputType="text"
+            android:fontFamily="monospace"
+            android:textSize="14sp"
+            android:layout_marginBottom="16dp" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -110,11 +133,24 @@
 
     </LinearLayout>
 
+    <!-- Master Control launcher shortcut button -->
+    <Button
+        android:id="@+id/btn_to_master"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/border_color"
+        android:text="MASTER CONTROL PANEL"
+        android:textColor="@color/text_secondary"
+        android:textSize="10sp"
+        android:layout_gravity="center"
+        android:layout_marginTop="12dp" />
+
     <ProgressBar
         android:id="@+id/progress_loader"
         android:layout_width="32dp"
         android:layout_height="32dp"
         android:visibility="gone"
-        android:indeterminateTint="@color/danger" />
+        android:indeterminateTint="@color/danger"
+        android:layout_marginTop="16dp" />
 
 </LinearLayout>

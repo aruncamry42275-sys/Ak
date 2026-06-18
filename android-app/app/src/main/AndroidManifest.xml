@@ -32,6 +32,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Master Control Panel activity -->
+        <activity
+            android:name=".MasterControlActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Driver Dashboard & Active NFC Punch Listener -->
         <activity
             android:name=".DriverDashboardActivity"

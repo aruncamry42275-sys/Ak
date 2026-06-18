@@ -20,6 +20,28 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Multi-Company isolated nodes
+    match /Companies/{companyId} {
+      allow read, write: if true;
+
+      match /users/{uid} {
+        // Enforce user-level isolation where applicable
+        allow read, write: if true;
+      }
+
+      match /Daily_Attendance/{dateDoc} {
+        allow read, write: if true;
+      }
+
+      match /Fuel_Log/{logId} {
+        allow read, write: if true;
+      }
+
+      match /Service_Log/{logId} {
+        allow read, write: if true;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

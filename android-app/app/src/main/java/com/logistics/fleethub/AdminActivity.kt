@@ -17,6 +17,10 @@ class AdminActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAdminBinding
     private val db = FirebaseFirestore.getInstance()
 
+    // Multi-Company Tenant ID
+    private lateinit var currentCompanyId: String
+    private lateinit var currentUid: String
+
     // NFC variables
     private var nfcAdapter: NfcAdapter? = null
     private var pendingIntent: PendingIntent? = null
@@ -27,6 +31,10 @@ class AdminActivity : AppCompatActivity() {
         
         binding = ActivityAdminBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Parse Multi-Tenant identifiers
+        currentCompanyId = intent.getStringExtra("companyId") ?: "COM_DEFAULT"
+        currentUid = intent.getStringExtra("uid") ?: "admin_usr"
 
         // Setup NFC hardware
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
@@ -50,6 +58,10 @@ class AdminActivity : AppCompatActivity() {
         }
 
         binding.btnLogout.setOnClickListener {
+            // Cleanly invalidate login configurations
+            val prefs = getSharedPreferences("FleetHubPrefs", MODE_PRIVATE)
+            prefs.edit().clear().apply()
+
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
         }
@@ -117,6 +129,7 @@ class AdminActivity : AppCompatActivity() {
         val email = binding.etDriverEmail.text.toString().trim()
         val fileNumber = binding.etDriverFileid.text.toString().trim()
         val password = binding.etDriverPassword.text.toString().trim()
+        val fuelBudgetStr = binding.etDriverFuelBudget.text.toString().trim()
         val nfcTagId = binding.etNfcTagId.text.toString().trim()
 
         if (name.isEmpty() || email.isEmpty() || fileNumber.isEmpty() || password.isEmpty()) {
@@ -124,26 +137,47 @@ class AdminActivity : AppCompatActivity() {
             return
         }
 
+        val fuelBudgetVal = if (fuelBudgetStr.isNotEmpty()) fuelBudgetStr.toDoubleOrNull() ?: 0.0 else 0.0
+
         val uid = "drv_${fileNumber}"
         val driverPayload = hashMapOf(
             "uid" to uid,
+            "companyId" to currentCompanyId,
             "name" to name,
             "email" to email,
             "role" to "driver",
             "fileNumber" to fileNumber,
             "password" to password,
-            "nfc_tag_id" to nfcTagId
+            "nfc_tag_id" to nfcTagId,
+            "fuelBudget" to fuelBudgetVal,
+            "additionalExpenses" to 0.0
         )
 
         binding.btnSaveDriver.isEnabled = false
         binding.btnSaveDriver.text = "WRITING SEGMENT..."
 
-        // Write directly to `/users` collection mapping unique user specs
-        db.collection("users").document(uid)
+        // Write directly to `/Companies/{Company_ID}/users/{uid}` mapping unique company tenant specs
+        db.collection("Companies").document(currentCompanyId)
+            .collection("users").document(uid)
             .set(driverPayload)
             .addOnSuccessListener {
-                Toast.makeText(this, "Driver details saved safely in Firestore Database!", Toast.LENGTH_LONG).show()
-                clearForm()
+                // Initialize the corresponding Fuel_Budget document
+                val budgetPayload = hashMapOf(
+                    "allocatedBudget" to fuelBudgetVal,
+                    "remainingBudget" to fuelBudgetVal,
+                    "totalAdditionalSpent" to 0.0
+                )
+                db.collection("Companies").document(currentCompanyId)
+                    .collection("Fuel_Budget").document(uid)
+                    .set(budgetPayload)
+                    .addOnSuccessListener {
+                        Toast.makeText(this, "Driver and Fuel Budget initialized successfully inside $currentCompanyId database node!", Toast.LENGTH_LONG).show()
+                        clearForm()
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(this, "Driver saved, but budget initialization failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        clearForm()
+                    }
             }
             .addOnFailureListener { e ->
                 Toast.makeText(this, "Database Write Failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -157,6 +191,7 @@ class AdminActivity : AppCompatActivity() {
         binding.etDriverEmail.text.clear()
         binding.etDriverFileid.text.clear()
         binding.etDriverPassword.text.clear()
+        binding.etDriverFuelBudget.text.clear()
         binding.etNfcTagId.text.clear()
         
         binding.btnSaveDriver.isEnabled = true
